@@ -3,7 +3,7 @@
 
 ## About ##
 
-A user provisioning server that wehn combined with some system configuration 
+A user provisioning server that when combined with some system configuration 
 can allow for new users of a shared Linux system be able to set up accounts for
 themselves.
 
