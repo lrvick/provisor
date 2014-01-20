@@ -1,0 +1,75 @@
+#!/usr/bin/env python3 
+
+import socket 
+import re
+import os
+import pwd
+import base64
+import configparser
+
+config = configparser.SafeConfigParser()
+
+configfile = 'default.cfg'
+
+config.read(['default.cfg','/etc/provisor.conf'])
+
+server = config.get('DEFAULT','server')
+
+host = '' 
+port = int(config.get('DEFAULT','port'))
+backlog = 5 
+size = 1024 
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind((host,port)) 
+s.listen(backlog) 
+
+def server():
+    client, address = s.accept()
+    client.send(bytes(config.get('Messages','welcome'),'UTF-8'))
+    
+    client.send(bytes('\n\nReal Name\n> ','UTF-8'))
+    real_name = re.sub("[^a-zA-Z]","", client.recv(size).decode('UTF-8').rstrip() )
+    client.send(bytes('\nUser Name\n> ','UTF-8'))
+    user = re.sub("[^a-zA-Z]","", client.recv(size).decode('UTF-8').rstrip())
+    config.set('Messages','user',user )
+    if not user or user in [entry.pw_name for entry in pwd.getpwall()]:
+        client.send(bytes("%s\n\n" % config.get('Messages','bad_user'),'UTF-8'))
+        client.close()
+        return
+    
+    client.send(bytes('\nSSH Public Key\n> ','UTF-8')) 
+    pubkey = client.recv(size).rstrip() 
+    try:
+        type, key_string, comment = pubkey.split()
+        base64.decodestring(key_string)
+    except:
+        client.send(bytes("%s\n\n" % config.get('Messages','bad_key'),'UTF-8'))
+        client.close()
+        return
+    
+    os.system('useradd -m -c "%s" %s' % (real_name,user) )
+    os.system('passwd -d %s' % (user) )
+    path = '/home/%s/.ssh/authorized_keys' % user
+    with open(path, 'a+') as f:
+        f.write(pubkey.decode('UTF-8'))
+    uid = pwd.getpwnam(user).pw_uid
+    gid = pwd.getpwnam(user).pw_uid
+    os.chown(path,uid,gid)
+    os.chmod(path,0o600)
+    
+    print('User Created: %s | %s' % (user,real_name) )
+    
+    client.send(bytes("%s\n\n" % config.get('Messages','created'),'UTF-8'))
+    client.close()
+    return
+
+
+def loop():
+    try:
+        while True: 
+            server()
+    except socket.error as e:
+        loop()
+    
+loop()
